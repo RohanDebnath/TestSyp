@@ -3,10 +3,13 @@ package com.example.testsyp;
 import android.Manifest;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.CountDownTimer;
-import android.os.Handler;
+import android.provider.ContactsContract;
 import android.telephony.SmsManager;
 import android.view.View;
 import android.widget.Button;
@@ -14,36 +17,45 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final int PERMISSION_REQUEST_CODE = 1;
+    private static final int REQUEST_CONTACT = 1;
+    private static final int MY_PERMISSIONS_REQUEST_SEND_SMS = 2;
 
-    private EditText phoneEditText;
-    private EditText timeIntervalEditText;
-    private Button startButton;
-    private TextView timerTextView;
+    private EditText etPhoneNumber;
+    private EditText etInterval;
+    private Button btnSelectContact;
+    private Button btnStartTimer;
+    private TextView tvCountdownTimer;
 
     private CountDownTimer countDownTimer;
-    private long timeInterval;
-    private String phoneNumber;
-
-    private boolean smsSent = false;
+    private long timeRemaining;
+    private boolean timerRunning = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        phoneEditText = findViewById(R.id.phoneEditText);
-        timeIntervalEditText = findViewById(R.id.timeIntervalEditText);
-        startButton = findViewById(R.id.startButton);
-        timerTextView = findViewById(R.id.timerTextView);
+        etPhoneNumber = findViewById(R.id.etPhoneNumber);
+        etInterval = findViewById(R.id.etInterval);
+        btnSelectContact = findViewById(R.id.btnSelectContact);
+        btnStartTimer = findViewById(R.id.btnStartTimer);
+        tvCountdownTimer = findViewById(R.id.tvCountdownTimer);
 
-        startButton.setOnClickListener(new View.OnClickListener() {
+        btnSelectContact.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                selectContact();
+            }
+        });
+
+        btnStartTimer.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 startTimer();
@@ -51,89 +63,179 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void startTimer() {
-        String intervalText = timeIntervalEditText.getText().toString().trim();
-        String phoneText = phoneEditText.getText().toString().trim();
+    private void selectContact() {
+        Intent intent = new Intent(Intent.ACTION_PICK);
+        intent.setType(ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE);
+        startActivityForResult(intent, REQUEST_CONTACT);
+    }
 
-        if (intervalText.isEmpty() || phoneText.isEmpty()) {
-            Toast.makeText(this, "Please enter a phone number and time interval", Toast.LENGTH_SHORT).show();
-            return;
+//
+//    @Override
+//    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+//        super.onActivityResult(requestCode, resultCode, data);
+//        if (requestCode == REQUEST_CONTACT && resultCode == RESULT_OK) {
+//            Uri contactUri = data.getData();
+//            String[] projection = new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER};
+//            Cursor cursor = getContentResolver().query(contactUri, projection, null, null, null);
+//            if (cursor != null && cursor.moveToFirst()) {
+//                int numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+//                String phoneNumber = cursor.getString(numberIndex);
+//                etPhoneNumber.setText(phoneNumber);
+//            }
+//            if (cursor != null) {
+//                cursor.close();
+//            }
+//        }
+  //  }
+@Override
+protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    super.onActivityResult(requestCode, resultCode, data);
+    if (requestCode == REQUEST_CONTACT && resultCode == RESULT_OK) {
+        Cursor cursor = null;
+        try {
+            Uri contactUri = data.getData();
+            cursor = getContentResolver().query(contactUri, null, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+                String phoneNumber = cursor.getString(numberIndex);
+                etPhoneNumber.setText(phoneNumber);
+            }
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
         }
+    }
+}
 
-        timeInterval = Long.parseLong(intervalText) * 60 * 1000; // Convert minutes to milliseconds
-        phoneNumber = phoneText;
 
+    private void startTimer() {
+        if (!timerRunning) {
+            String intervalString = etInterval.getText().toString().trim();
+            if (!intervalString.isEmpty()) {
+                int interval = Integer.parseInt(intervalString);
+                long millisInterval = interval * 60 * 1000; // Convert minutes to milliseconds
+
+                timeRemaining = millisInterval;
+                countDownTimer = new CountDownTimer(millisInterval, 1000) {
+                    @Override
+                    public void onTick(long millisUntilFinished) {
+                        timeRemaining = millisUntilFinished;
+                        updateCountdownTimer();
+                    }
+
+                    @Override
+                    public void onFinish() {
+                        showAlertDialog();
+                    }
+                };
+
+                countDownTimer.start();
+                timerRunning = true;
+                btnStartTimer.setText("Stop Timer");
+                etInterval.setEnabled(false);
+                btnSelectContact.setEnabled(false);
+            } else {
+                Toast.makeText(MainActivity.this, "Please enter a valid time interval.", Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            stopTimer();
+        }
+    }
+
+    private void stopTimer() {
         if (countDownTimer != null) {
             countDownTimer.cancel();
         }
+        timerRunning = false;
+        btnStartTimer.setText("Start Timer");
+        etInterval.setEnabled(true);
+        btnSelectContact.setEnabled(true);
+        updateCountdownTimer();
+    }
 
-        countDownTimer = new CountDownTimer(timeInterval, 1000) {
+    private void updateCountdownTimer() {
+        int minutes = (int) (timeRemaining / 1000) / 60;
+        int seconds = (int) (timeRemaining / 1000) % 60;
+        String time = String.format("%02d:%02d", minutes, seconds);
+        tvCountdownTimer.setText("Countdown Timer: " + time);
+    }
+
+    private void showAlertDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+        builder.setTitle("Timer Expired");
+        builder.setMessage("Snooze or Send SMS?");
+        builder.setPositiveButton("Snooze", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                stopTimer();
+                Toast.makeText(MainActivity.this, "Snooze clicked", Toast.LENGTH_SHORT).show();
+            }
+        });
+        builder.setNegativeButton("Send SMS", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                stopTimer();
+                Toast.makeText(MainActivity.this, "Send SMS clicked", Toast.LENGTH_SHORT).show();
+                sendSMSAfterDelay(10); // Send SMS after 10 seconds
+            }
+        });
+        builder.setCancelable(false); // Prevent dialog from being dismissed by pressing outside
+        AlertDialog dialog = builder.create();
+        dialog.show();
+
+        // Schedule sending SMS after 10 seconds if no button is clicked
+            new CountDownTimer(10000, 1000) {
             @Override
             public void onTick(long millisUntilFinished) {
-                long minutes = millisUntilFinished / 1000 / 60;
-                long seconds = (millisUntilFinished / 1000) % 60;
-                timerTextView.setText(String.format("%02d:%02d", minutes, seconds));
             }
 
             @Override
             public void onFinish() {
-                showAlert();
+                if (dialog.isShowing()) {
+                    sendSMS();
+                    dialog.dismiss();
+                }
             }
-        };
-
-        countDownTimer.start();
+        }.start();
     }
 
-    private void showAlert() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Time's Up!")
-                .setMessage("Do you want to snooze?")
-                .setPositiveButton("Snooze", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        startTimer();
-                    }
-                })
-                .setNegativeButton("Dismiss", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        // Do nothing, SMS will be sent after 15 seconds automatically
-                    }
-                })
-                .setCancelable(false)
-                .show();
-
-        new Handler().postDelayed(new Runnable() {
+    private void sendSMSAfterDelay(int delayInSeconds) {
+        new CountDownTimer(delayInSeconds * 1000, 1000) {
             @Override
-            public void run() {
-                sendSms();
+            public void onTick(long millisUntilFinished) {
             }
-        }, 15000); // Delay of 15 seconds (15000 milliseconds)
+
+            @Override
+            public void onFinish() {
+                sendSMS();
+            }
+        }.start();
     }
 
-    private void sendSms() {
-        if (smsSent) {
-            return; // SMS has already been sent, no need to send again
-        }
-
-        smsSent = true;
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
-            SmsManager smsManager = SmsManager.getDefault();
-            smsManager.sendTextMessage(phoneNumber, null, "Your message", null, null);
-            Toast.makeText(this, "SMS sent to " + phoneNumber, Toast.LENGTH_SHORT).show();
+    private void sendSMS() {
+        String phoneNumber = etPhoneNumber.getText().toString().trim();
+        if (!phoneNumber.isEmpty()) {
+            if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.SEND_SMS}, MY_PERMISSIONS_REQUEST_SEND_SMS);
+            } else {
+                SmsManager smsManager = SmsManager.getDefault();
+                smsManager.sendTextMessage(phoneNumber, null, "Your SMS message", null, null);
+                Toast.makeText(MainActivity.this, "SMS Sent", Toast.LENGTH_SHORT).show();
+            }
         } else {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.SEND_SMS}, PERMISSION_REQUEST_CODE);
+            Toast.makeText(MainActivity.this, "Please enter a valid phone number.", Toast.LENGTH_SHORT).show();
         }
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        if (requestCode == PERMISSION_REQUEST_CODE) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == MY_PERMISSIONS_REQUEST_SEND_SMS) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                sendSms();
+                sendSMS();
             } else {
-                Toast.makeText(this, "SMS permission denied", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "SMS permission denied", Toast.LENGTH_SHORT).show();
             }
         }
     }
