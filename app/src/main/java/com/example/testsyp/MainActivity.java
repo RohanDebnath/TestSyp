@@ -2,10 +2,15 @@ package com.example.testsyp;
 
 import android.Manifest;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.location.Address;
+import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.CountDownTimer;
@@ -21,6 +26,10 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -69,45 +78,26 @@ public class MainActivity extends AppCompatActivity {
         startActivityForResult(intent, REQUEST_CONTACT);
     }
 
-//
-//    @Override
-//    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-//        super.onActivityResult(requestCode, resultCode, data);
-//        if (requestCode == REQUEST_CONTACT && resultCode == RESULT_OK) {
-//            Uri contactUri = data.getData();
-//            String[] projection = new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER};
-//            Cursor cursor = getContentResolver().query(contactUri, projection, null, null, null);
-//            if (cursor != null && cursor.moveToFirst()) {
-//                int numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
-//                String phoneNumber = cursor.getString(numberIndex);
-//                etPhoneNumber.setText(phoneNumber);
-//            }
-//            if (cursor != null) {
-//                cursor.close();
-//            }
-//        }
-  //  }
-@Override
-protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-    super.onActivityResult(requestCode, resultCode, data);
-    if (requestCode == REQUEST_CONTACT && resultCode == RESULT_OK) {
-        Cursor cursor = null;
-        try {
-            Uri contactUri = data.getData();
-            cursor = getContentResolver().query(contactUri, null, null, null, null);
-            if (cursor != null && cursor.moveToFirst()) {
-                int numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
-                String phoneNumber = cursor.getString(numberIndex);
-                etPhoneNumber.setText(phoneNumber);
-            }
-        } finally {
-            if (cursor != null) {
-                cursor.close();
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CONTACT && resultCode == RESULT_OK) {
+            Cursor cursor = null;
+            try {
+                Uri contactUri = data.getData();
+                cursor = getContentResolver().query(contactUri, null, null, null, null);
+                if (cursor != null && cursor.moveToFirst()) {
+                    int numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+                    String phoneNumber = cursor.getString(numberIndex);
+                    etPhoneNumber.setText(phoneNumber);
+                }
+            } finally {
+                if (cursor != null) {
+                    cursor.close();
+                }
             }
         }
     }
-}
-
 
     private void startTimer() {
         if (!timerRunning) {
@@ -144,21 +134,20 @@ protected void onActivityResult(int requestCode, int resultCode, Intent data) {
     }
 
     private void stopTimer() {
-        if (countDownTimer != null) {
+        if (timerRunning) {
             countDownTimer.cancel();
+            timerRunning = false;
+            btnStartTimer.setText("Start Timer");
+            etInterval.setEnabled(true);
+            btnSelectContact.setEnabled(true);
         }
-        timerRunning = false;
-        btnStartTimer.setText("Start Timer");
-        etInterval.setEnabled(true);
-        btnSelectContact.setEnabled(true);
-        updateCountdownTimer();
     }
 
     private void updateCountdownTimer() {
         int minutes = (int) (timeRemaining / 1000) / 60;
         int seconds = (int) (timeRemaining / 1000) % 60;
-        String time = String.format("%02d:%02d", minutes, seconds);
-        tvCountdownTimer.setText("Countdown Timer: " + time);
+        String timeLeftFormatted = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds);
+        tvCountdownTimer.setText(timeLeftFormatted);
     }
 
     private void showAlertDialog() {
@@ -177,7 +166,7 @@ protected void onActivityResult(int requestCode, int resultCode, Intent data) {
             public void onClick(DialogInterface dialog, int which) {
                 stopTimer();
                 Toast.makeText(MainActivity.this, "Send SMS clicked", Toast.LENGTH_SHORT).show();
-                sendSMSAfterDelay(10); // Send SMS after 10 seconds
+                getCurrentLocationAndSendSMS();
             }
         });
         builder.setCancelable(false); // Prevent dialog from being dismissed by pressing outside
@@ -185,7 +174,7 @@ protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         dialog.show();
 
         // Schedule sending SMS after 10 seconds if no button is clicked
-            new CountDownTimer(10000, 1000) {
+        new CountDownTimer(10000, 1000) {
             @Override
             public void onTick(long millisUntilFinished) {
             }
@@ -193,39 +182,60 @@ protected void onActivityResult(int requestCode, int resultCode, Intent data) {
             @Override
             public void onFinish() {
                 if (dialog.isShowing()) {
-                    sendSMS();
+                    getCurrentLocationAndSendSMS();
                     dialog.dismiss();
                 }
             }
         }.start();
     }
 
-    private void sendSMSAfterDelay(int delayInSeconds) {
-        new CountDownTimer(delayInSeconds * 1000, 1000) {
-            @Override
-            public void onTick(long millisUntilFinished) {
-            }
-
-            @Override
-            public void onFinish() {
-                sendSMS();
-            }
-        }.start();
-    }
-
-    private void sendSMS() {
+    private void getCurrentLocationAndSendSMS() {
         String phoneNumber = etPhoneNumber.getText().toString().trim();
         if (!phoneNumber.isEmpty()) {
-            if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.SEND_SMS}, MY_PERMISSIONS_REQUEST_SEND_SMS);
+            if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, MY_PERMISSIONS_REQUEST_SEND_SMS);
             } else {
-                SmsManager smsManager = SmsManager.getDefault();
-                smsManager.sendTextMessage(phoneNumber, null, "Your SMS message", null, null);
-                Toast.makeText(MainActivity.this, "SMS Sent", Toast.LENGTH_SHORT).show();
+                LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+                if (locationManager != null && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    Location location = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                    if (location != null) {
+                        String locationText = getLocationText(location.getLatitude(), location.getLongitude());
+                        sendSMS(phoneNumber, locationText);
+                    } else {
+                        Toast.makeText(MainActivity.this, "Unable to retrieve location.", Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(MainActivity.this, "GPS is disabled.", Toast.LENGTH_SHORT).show();
+                }
             }
         } else {
             Toast.makeText(MainActivity.this, "Please enter a valid phone number.", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void sendSMS(String phoneNumber, String message) {
+        SmsManager smsManager = SmsManager.getDefault();
+        smsManager.sendTextMessage(phoneNumber, null, message, null, null);
+        Toast.makeText(MainActivity.this, "SMS Sent", Toast.LENGTH_SHORT).show();
+    }
+
+    private String getLocationText(double latitude, double longitude) {
+        Geocoder geocoder = new Geocoder(MainActivity.this, Locale.getDefault());
+        try {
+            List<Address> addresses = geocoder.getFromLocation(latitude, longitude, 1);
+            if (addresses != null && addresses.size() > 0) {
+                Address address = addresses.get(0);
+                StringBuilder sb = new StringBuilder();
+                sb.append(address.getAddressLine(0)).append(", ");
+                sb.append(address.getLocality()).append(", ");
+                sb.append(address.getAdminArea()).append(", ");
+                sb.append(address.getCountryName());
+                return sb.toString();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return "Unknown Location";
     }
 
     @Override
@@ -233,9 +243,9 @@ protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == MY_PERMISSIONS_REQUEST_SEND_SMS) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                sendSMS();
+                getCurrentLocationAndSendSMS();
             } else {
-                Toast.makeText(MainActivity.this, "SMS permission denied", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "Permission denied.", Toast.LENGTH_SHORT).show();
             }
         }
     }
