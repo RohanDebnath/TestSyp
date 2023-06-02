@@ -11,6 +11,7 @@ import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationManager;
+import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.CountDownTimer;
@@ -45,6 +46,7 @@ public class MainActivity extends AppCompatActivity {
     private CountDownTimer countDownTimer;
     private long timeRemaining;
     private boolean timerRunning = false;
+    private MediaPlayer mediaPlayer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
         btnSelectContact = findViewById(R.id.btnSelectContact);
         btnStartTimer = findViewById(R.id.btnStartTimer);
         tvCountdownTimer = findViewById(R.id.tvCountdownTimer);
+
 
         btnSelectContact.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -151,6 +154,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showAlertDialog() {
+        playAlarm();
         AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
         builder.setTitle("Timer Expired");
         builder.setMessage("Snooze or Send SMS?");
@@ -159,6 +163,7 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(DialogInterface dialog, int which) {
                 stopTimer();
                 Toast.makeText(MainActivity.this, "Snooze clicked", Toast.LENGTH_SHORT).show();
+                stopAlarm();
             }
         });
         builder.setNegativeButton("Send SMS", new DialogInterface.OnClickListener() {
@@ -183,7 +188,8 @@ public class MainActivity extends AppCompatActivity {
             public void onFinish() {
                 if (dialog.isShowing()) {
                     getCurrentLocationAndSendSMS();
-                    dialog.dismiss();
+               //     stopAlarm();
+                 //   dialog.dismiss();
                 }
             }
         }.start();
@@ -237,7 +243,19 @@ public class MainActivity extends AppCompatActivity {
         }
         return "Unknown Location";
     }
+    private void playAlarm() {
+        mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound);
+        mediaPlayer.setLooping(true);
+        mediaPlayer.start();
+    }
 
+    private void stopAlarm() {
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            mediaPlayer.stop();
+            mediaPlayer.release();
+            mediaPlayer = null;
+        }
+    }
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
